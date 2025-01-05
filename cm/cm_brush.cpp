@@ -1,23 +1,79 @@
 #include "cm_brush.hpp"
 #include "cm_typedefs.hpp"
 #include "cg/cg_local.hpp"
+#include "com/com_vector.hpp"
+#include "cg/cg_offsets.hpp"
+
+#include <ranges>
 #include <iostream>
-#include <com/com_vector.hpp>
-#include <cg/cg_offsets.hpp>
+
 
 SimplePlaneIntersection pts[1024];
 SimplePlaneIntersection* pts_results[1024];
 
-void CM_GetBrushWindings(cbrush_t* brush)
+void CM_ShowCollisionFilter()
+{
+	const auto num_args = cmd_args->argc[cmd_args->nesting];
+
+
+	if (num_args == 1) {
+		if (CClipMap::Size() == 0)
+			((void(*)(int, const char*))0x59A2C0)(5, "there is no geometry to be cleared.. did you intend to use cm_showCollisionFilter <material>?\n");
+		CClipMap::ClearThreadSafe();
+		return;
+	}
+
+	CClipMap::ClearThreadSafe();
+
+
+	std::unordered_set<std::string> filters;
+	for (int i = 1; i < num_args; i++) {
+		filters.insert(*(cmd_args->argv[cmd_args->nesting] + i));
+	}
+
+	return CM_LoadAllBrushWindingsToClipMapWithFilter(filters);
+}
+
+void CM_LoadAllBrushWindingsToClipMapWithFilter(const std::unordered_set<std::string>& filters)
+{
+	std::unique_lock<std::mutex> lock(CClipMap::GetLock());
+
+	CClipMap::ClearAllOfType(cm_geomtype::brush);
+
+	if (filters.empty())
+		return;
+
+	for (const auto i : std::views::iota(0u, cm->numBrushes)) {
+
+		auto materials = CM_GetBrushMaterials(&cm->brushes[i]);
+
+		bool yes = {};
+
+		for (const auto& material : materials) {
+			if (CM_IsMatchingFilter(filters, material.c_str())) {
+				yes = true;
+				break;
+			}
+		}
+
+		if (!yes)
+			continue;
+
+		CM_LoadBrushWindingsToClipMap(&cm->brushes[i]);
+	}
+
+}
+
+void CM_LoadBrushWindingsToClipMap(const cbrush_t* brush)
 {
 	if (!brush)
 		return;
 
-	CClipMap::wip_geom = CM_GetBrushPoints(brush, { 0.f, 1.f, 0.f });
-	CClipMap::insert(CClipMap::wip_geom);
+	CClipMap::m_pWipGeometry = CM_GetBrushPoints(brush, { 0.f, 1.f, 0.f });
+	CClipMap::Insert(CClipMap::m_pWipGeometry);
 
 }
-std::unique_ptr<cm_geometry> CM_GetBrushPoints(cbrush_t* brush, const fvec3& poly_col)
+std::unique_ptr<cm_geometry> CM_GetBrushPoints(const cbrush_t* brush, const fvec3& poly_col)
 {
 	if (!brush)
 		return nullptr;
@@ -30,13 +86,14 @@ std::unique_ptr<cm_geometry> CM_GetBrushPoints(cbrush_t* brush, const fvec3& pol
 	int intersection = 0;
 	int num_verts = 0;
 
-	CClipMap::wip_geom = std::make_unique<cm_brush>();
-	CClipMap::wip_color = poly_col;
+	CClipMap::m_pWipGeometry = std::make_unique<cm_brush>();
+	CClipMap::m_vecWipGeometryColor = poly_col;
 
-	auto c_brush = dynamic_cast<cm_brush*>(CClipMap::wip_geom.get());
+	auto c_brush = dynamic_cast<cm_brush*>(CClipMap::m_pWipGeometry.get());
 
-	c_brush->brush = brush;
+	c_brush->brush = const_cast<cbrush_t*>(brush);
 	c_brush->origin = fvec3(brush->mins) + ((fvec3(brush->maxs) - fvec3(brush->mins)) / 2);
+	c_brush->originalContents = brush->contents;
 
 	do {
 		auto w = BuildBrushAdjacencyWindingForSide(intersections, (char*)"lol", outPlanes[intersection], intersection, pts, &windings[intersection]);
@@ -50,7 +107,7 @@ std::unique_ptr<cm_geometry> CM_GetBrushPoints(cbrush_t* brush, const fvec3& pol
 	c_brush->num_verts = num_verts;
 	c_brush->create_corners();
 
-	return std::move(CClipMap::wip_geom);
+	return std::move(CClipMap::m_pWipGeometry);
 
 }
 void CM_BuildAxialPlanes(float(*planes)[6][4], const cbrush_t* brush)
@@ -149,9 +206,9 @@ adjacencyWinding_t* BuildBrushAdjacencyWindingForSide(int ptCount, char* collMap
 
 	return r;
 }
-static void __cdecl adjacency_winding(adjacencyWinding_t* w, float* points, vec3_t normal, unsigned int i0, unsigned int i1, unsigned int i2)
+void __cdecl adjacency_winding(adjacencyWinding_t* w, float* points, vec3_t normal, unsigned int i0, unsigned int i1, unsigned int i2)
 {
-	auto brush = dynamic_cast<cm_brush*>(CClipMap::wip_geom.get());
+	auto brush = dynamic_cast<cm_brush*>(CClipMap::m_pWipGeometry.get());
 	cm_triangle tri;
 	std::vector<fvec3> winding_points;
 
@@ -173,7 +230,7 @@ static void __cdecl adjacency_winding(adjacencyWinding_t* w, float* points, vec3
 		winding_points.push_back({ &points[winding * 3] });
 	}
 
-	brush->windings.push_back(cm_winding{ winding_points, normal, CClipMap::wip_color });
+	brush->windings.emplace_back(cm_winding{ winding_points, normal, CClipMap::m_vecWipGeometryColor });
 
 }
 __declspec(naked) void __brush::__asm_adjacency_winding()
@@ -243,5 +300,54 @@ char* CM_MaterialForNormal(const cbrush_t* target, const fvec3& normals)
 		return cm->materials[mtl].material;
 
 	return nullptr;
+
+}
+
+float outPlanes2[128][4]{};
+
+std::vector<std::string> CM_GetBrushMaterials(const cbrush_t* brush)
+{
+	std::vector<std::string> result;
+
+	const auto planeCount = BrushToPlanes(brush, outPlanes2);
+	[[maybe_unused]] const auto intersections = GetPlaneIntersections((const float**)outPlanes2, planeCount, pts);
+
+	for (const auto i : std::views::iota(0, planeCount))
+	{
+		const fvec3 plane = outPlanes2[i];
+
+		if (const auto mtl = CM_MaterialForNormal(brush, plane)) {
+			result.emplace_back(mtl);
+		}
+
+
+	}
+
+	return result;
+}
+
+#define MASK_PLAYERSOLID (0x02810011)
+
+bool CM_BrushHasCollision(const cbrush_t* brush)
+{
+	return (brush->contents & MASK_PLAYERSOLID) != 0;
+}
+
+bool CM_BrushInView(const cbrush_t* brush, struct cplane_s* frustumPlanes, int numPlanes)
+{
+	if (numPlanes <= 0)
+		return 1;
+
+	cplane_s* plane = frustumPlanes;
+	int idx = 0;
+	while ((BoxOnPlaneSide(brush->mins, brush->maxs, plane) & 1) != 0) {
+		++plane;
+		++idx;
+
+		if (idx >= numPlanes)
+			return 1;
+	}
+
+	return 0;
 
 }

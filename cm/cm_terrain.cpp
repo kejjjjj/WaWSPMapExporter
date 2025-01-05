@@ -29,7 +29,7 @@ bool CM_DiscoverTerrain([[maybe_unused]]const std::unordered_set<std::string>& f
 			auto terrain = CM_LeafToGeometry(&cm->leafs[i], filters);
 
 			if (terrain)
-				CClipMap::insert(terrain);
+				CClipMap::Insert(terrain);
 		}
 		return true;
 	}
@@ -116,4 +116,21 @@ std::unique_ptr<cm_geometry> CM_LeafToGeometry(const cLeaf_t* leaf, const std::u
 
 
 	return std::make_unique<cm_terrain>(terrain);
+}
+
+bool CM_TriangleInView(const cm_triangle* tris, struct cplane_s* frustumPlanes, int numPlanes)
+{
+	if (numPlanes <= 0)
+		return 1;
+	cplane_s* plane = frustumPlanes;
+	int idx = 0;
+	while ((BoxOnPlaneSide(tris->get_mins(), tris->get_maxs(), plane) & 1) != 0) {
+		++plane;
+		++idx;
+
+		if (idx >= numPlanes)
+			return 1;
+	}
+
+	return 0;
 }

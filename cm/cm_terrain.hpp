@@ -7,6 +7,7 @@ struct cLeaf_t;
 
 struct cm_terrain;
 struct cm_geometry;
+struct cm_triangle;
 
 class CClipMap;
 
@@ -15,3 +16,5 @@ bool CM_AabbTreeHasCollision(const CollisionAabbTree* tree);
 bool CM_DiscoverTerrain(const std::unordered_set<std::string>& filters);
 void CM_AdvanceAabbTree(const CollisionAabbTree* aabbTree, cm_terrain* terrain, const std::unordered_set<std::string>& filters, const float* color);
 std::unique_ptr<cm_geometry> CM_LeafToGeometry(const cLeaf_t* leaf, const std::unordered_set<std::string>& filters);
+
+bool CM_TriangleInView(const cm_triangle* leaf, struct cplane_s* frustumPlanes, int numPlanes = 5);

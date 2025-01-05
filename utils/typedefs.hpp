@@ -3,6 +3,7 @@
 #include <cmath>
 #include <ostream>
 #include <type_traits>
+#include <functional>
 
 struct ImVec2;
 
@@ -21,10 +22,6 @@ struct vec2
 	constexpr vec2(const vec3<T>& v);
 
 	//constexpr vec2(const float(*a)[2]) { x = a[0]; y = a[1];  }
-
-	constexpr vec2(const ImVec2& b);
-	constexpr operator ImVec2();
-	constexpr operator ImVec2() const;
 
 	constexpr vec2 operator+(const vec2& v) const { return { x + v.x, y + v.y }; }
 	constexpr vec2 operator-(const vec2& v) const { return { x - v.x, y - v.y }; }
@@ -108,7 +105,7 @@ struct vec2
 		return (x * x + y * y);
 	}
 	constexpr vec2 clamp(const T min, const T max) {
-		vec2<T> r;
+		vec2<T> r = *this;
 		if (x < min)		r.x = min;
 		else if (x > max)	r.x = max;
 
@@ -154,15 +151,17 @@ struct vec2
 
 		return vec2(x_diff, y_diff).normalize180();
 	}
-	template<typename Func, typename ... Args>
-	constexpr vec2 for_each(Func func, Args... args) const {
 
+	template<typename Func, typename ... Args>
+	constexpr vec2 for_each(Func func, Args... args)
+	{
 		return vec2
 		{
-			func(x, std::forward<Args>(args)...),
-			func(y, std::forward<Args>(args)...),
+			x = func(x, std::forward<Args>(args)...),
+			y = func(y, std::forward<Args>(args)...),
 		};
 	}
+
 };
 
 using ivec2 = vec2<int>;
@@ -226,8 +225,13 @@ struct vec3
 		return ((T*)&x)[index];
 	}
 
+	constexpr vec2<T> xy() const noexcept
+	{
+		return { x, y };
+	}
+
 	T mag() const noexcept {
-		return static_cast<T>(std::sqrtf(x * x + y * y + z * z));
+		return static_cast<T>(std::sqrtf(static_cast<float>(x * x + y * y + z * z)));
 	}
 	constexpr T mag_sq() const noexcept {
 		return (x * x + y * y + z * z);
@@ -236,8 +240,8 @@ struct vec3
 	{
 		return x * vec.x + y * vec.y + z * vec.z;
 	}
-	vec3 normalize() const  noexcept {
-		vec3 r = *this;
+	vec3<T> normalize() const  noexcept {
+		vec3<T> r = *this;
 		const float length = this->mag();
 		float ilength;
 
@@ -250,8 +254,8 @@ struct vec3
 
 		return r;
 	}
-	vec3 normalize(float& len) const  noexcept {
-		vec3 r = *this;
+	vec3<T> normalize(float& len) const  noexcept {
+		vec3<T> r = *this;
 		len = this->mag();
 		float ilength;
 
@@ -274,11 +278,11 @@ struct vec3
 		const vec3 sub = *this - vec;
 		return sub.mag_sq();
 	}
-	constexpr vec3 inverse() const noexcept
+	constexpr vec3<T> inverse() const noexcept
 	{
 		return { -x, -y, -z };
 	}
-	vec3 abs() const noexcept {
+	vec3<T> abs() const noexcept {
 
 		constexpr auto cexpr_abs = [](const T v) {
 			return v < static_cast<T>(0) ? -v : v;
@@ -286,8 +290,8 @@ struct vec3
 
 		return { cexpr_abs(x), cexpr_abs(y), cexpr_abs(z) };
 	}
-	constexpr vec3 clamp(const T min, const T max) noexcept {
-		vec3<T> r;
+	constexpr vec3<T> clamp(const T min, const T max) const noexcept {
+		vec3<T> r = *this;
 
 		if (x < min)		r.x = min;
 		else if (x > max)	r.x = max;
@@ -300,7 +304,16 @@ struct vec3
 
 		return r;
 	}
-	vec3 toangles() const noexcept
+	vec3<T> cross(const vec3<T>& other) const noexcept {
+
+		return {
+			this->y * other.z - this->z * other.y,
+			this->z * other.x - this->x * other.z,
+			this->x * other.y - this->y * other.x,
+		};
+
+	}
+	vec3<T> toangles() const noexcept
 	{
 		float forward;
 		float yaw, pitch;
@@ -337,7 +350,7 @@ struct vec3
 
 		return vec3(-pitch, yaw, 0);
 	}
-	vec3 toforward() const noexcept {
+	vec3<T> toforward() const noexcept {
 		float angle;
 		static float sp, sy, cp, cy;
 		// static to help MS compiler fp bugs
@@ -350,10 +363,10 @@ struct vec3
 		sp = sin(angle);
 		cp = cos(angle);
 
-		return vec3(cp * cy, cp * sy, -sp);
+		return vec3<T>(cp * cy, cp * sy, -sp);
 
 	}
-	vec3 toright() const noexcept {
+	vec3<T> toright() const noexcept {
 		float angle;
 		static float sr, cr, sp, sy, cp, cy;
 		// static to help MS compiler fp bugs
@@ -370,10 +383,10 @@ struct vec3
 		sr = sin(angle);
 		cr = cos(angle);
 
-		return vec3((-1 * sr * sp * cy + -1 * cr * -sy), (-1 * sr * sp * sy + -1 * cr * cy), -1 * sr * cp);
+		return vec3<T>((-1 * sr * sp * cy + -1 * cr * -sy), (-1 * sr * sp * sy + -1 * cr * cy), -1 * sr * cp);
 
 	}
-	vec3 toup() const noexcept {
+	vec3<T> toup() const noexcept {
 		float angle;
 		static float sr, cr, sp, sy, cp, cy;
 		// static to help MS compiler fp bugs
@@ -390,43 +403,43 @@ struct vec3
 		sr = sin(angle);
 		cr = cos(angle);
 
-		return vec3((cr * sp * cy + -sr * -sy), (cr * sp * sy + -sr * cy), cr * cp);
+		return vec3<T>((cr * sp * cy + -sr * -sy), (cr * sp * sy + -sr * cy), cr * cp);
 
 	}
-	constexpr vec3 to_degrees()
+	constexpr vec3<T> to_degrees()
 	{
 		constexpr float pi = 3.14159265358979323846f;
 		return { x * (180.f / pi), y * (180.f / pi), z * (180.f / pi) };
 	}
-	constexpr vec3 normalize360() const noexcept
+	constexpr vec3<T> normalize360() const noexcept
 	{
-		return vec3
+		return vec3<T>
 		{
-			(360.0f / 65536) * ((int)(x * (65536 / 360.0f)) & 65535),
-			(360.0f / 65536) * ((int)(y * (65536 / 360.0f)) & 65535),
-			(360.0f / 65536) * ((int)(z * (65536 / 360.0f)) & 65535),
+			(360.0f / 65536)* ((int)(x* (65536 / 360.0f)) & 65535),
+				(360.0f / 65536)* ((int)(y* (65536 / 360.0f)) & 65535),
+				(360.0f / 65536)* ((int)(z* (65536 / 360.0f)) & 65535),
 
 		};
 	}
-	constexpr vec3 normalize180() const noexcept
+	constexpr vec3<T> normalize180() const noexcept
 	{
-		vec3 angle = normalize360();
+		vec3<T> angle = normalize360();
 		for (int i = 0; i < 3; i++) {
-			if (angle[i] > 180.0f) {
-				angle[i] -= 360.0f;
+			if (angle[i] > 180) {
+				angle[i] -= 360;
 			}
 		}
 		return angle;
 	}
-	constexpr vec3 angle_delta(const vec3& other) const noexcept
+	constexpr vec3<T> angle_delta(const vec3<T>& other) const noexcept
 	{
 		return (*this - other).normalize180();
 	}
 	constexpr vec3 smooth(const vec3& dst, float smoothingFactor) const noexcept {
 		smoothingFactor = std::max(0.f, std::min(1.f, smoothingFactor));
-		return *this + smoothingFactor * (dst - *this);
+		return *this + (dst - *this) * smoothingFactor;
 	}
-	constexpr vec3 angular_distance(const vec3& other)
+	constexpr vec3<T> angular_distance(const vec3<T>& other)
 	{
 		constexpr const auto ce_fmodf = [](float x, float y) {
 			return (y != 0.0f) ? x - static_cast<int>(x / y) * y : 0.0f;
@@ -440,14 +453,26 @@ struct vec3
 	}
 
 	template<typename Func, typename ... Args>
-	constexpr vec3 for_each(Func func, Args... args) const {
+	constexpr vec3<T> for_each(Func func, Args... args) {
 
-		return vec3
+		return vec3<T>
 		{
 			func(x, std::forward<Args>(args)...),
-			func(y, std::forward<Args>(args)...),
-			func(z, std::forward<Args>(args)...)
+				func(y, std::forward<Args>(args)...),
+				func(z, std::forward<Args>(args)...)
 		};
+	}
+	template<typename Func, typename ... Args>
+	constexpr bool every(Func&& func, Args&&... args) const {
+
+		static_assert(std::is_same_v<std::invoke_result_t<Func, decltype(x), Args...>, bool>,
+			"Callable must return bool");
+
+		return
+			func(x, std::forward<Args>(args)...) &&
+			func(y, std::forward<Args>(args)...) &&
+			func(z, std::forward<Args>(args)...);
+
 	}
 	constexpr vec3<int> to_short() const noexcept
 	{
@@ -466,6 +491,16 @@ struct vec3
 			};
 
 		return vec3<float>{s2a(x), s2a(y), s2a(z) };
+	}
+	template<typename Type>
+	constexpr Type As() noexcept {
+		static_assert(std::is_pointer<Type>::value);
+		return reinterpret_cast<Type>(&x);
+	}
+	template<typename Type>
+	constexpr Type As() const noexcept {
+		static_assert(std::is_pointer<Type>::value);
+		return (const Type)(&x);
 	}
 };
 

@@ -37,6 +37,15 @@
     <Filter Include="Source Files\utils">
       <UniqueIdentifier>{7b66506b-bc96-45b7-ade2-1638a10e13ec}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\dvar">
+      <UniqueIdentifier>{1cd06cab-af17-471a-a05b-ec5cdb56e5a7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\r">
+      <UniqueIdentifier>{83f1fea1-6263-4dbf-a206-3c1927a60e43}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\r\backend">
+      <UniqueIdentifier>{8e62e1f6-671d-4eb1-bd01-9db4718a34e6}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="framework.h">
@@ -102,6 +111,15 @@
     <ClInclude Include="utils\hook.hpp">
       <Filter>Source Files\utils</Filter>
     </ClInclude>
+    <ClInclude Include="dvar\dvar.hpp">
+      <Filter>Source Files\dvar</Filter>
+    </ClInclude>
+    <ClInclude Include="r\backend\rb_endscene.hpp">
+      <Filter>Source Files\r\backend</Filter>
+    </ClInclude>
+    <ClInclude Include="cm\cm_renderer.hpp">
+      <Filter>Source Files\cm</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp">
@@ -166,6 +184,15 @@
     </ClCompile>
     <ClCompile Include="utils\functions.cpp">
       <Filter>Source Files\utils</Filter>
+    </ClCompile>
+    <ClCompile Include="dvar\dvar.cpp">
+      <Filter>Source Files\dvar</Filter>
+    </ClCompile>
+    <ClCompile Include="r\backend\rb_endscene.cpp">
+      <Filter>Source Files\r\backend</Filter>
+    </ClCompile>
+    <ClCompile Include="cm\cm_renderer.cpp">
+      <Filter>Source Files\cm</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

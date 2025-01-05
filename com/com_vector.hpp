@@ -6,6 +6,12 @@ template<typename T>
 struct vec3;
 
 using fvec3 = vec3<float>;
+struct cplane_s;
+
+int BoxOnPlaneSide(const fvec3& emins, const fvec3& emaxs, cplane_s* p);
+void BuildFrustumPlanes(cplane_s* frustumPlanes);
+void SetPlaneSignbits(cplane_s* out);
+void CreateFrustumPlanes(cplane_s* frustumPlanes);
 
 void PlaneFromPointsASM(float* plane, float* v0, float* v1, float* v2);
 
@@ -25,3 +31,6 @@ fvec3 AxisToAngles(const vec3_t axis[3]);
 
 float AngleNormalize360(float angle);
 float AngleNormalize180(float angle);
+
+fvec3 SetSurfaceBrightness(const fvec3& color, const fvec3& normal, const fvec3& lightDirection);
+

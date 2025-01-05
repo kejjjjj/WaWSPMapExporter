@@ -1,17 +1,20 @@
 #include "cg/cg_offsets.hpp"
 #include "cg/cg_local.hpp"
+#include "cm_typedefs.hpp"
 #include "cm_brush.hpp"
 #include "cm_model.hpp"
 #include "cm_terrain.hpp"
-#include "cm_typedefs.hpp"
-#include <algorithm>
+#include "cm_renderer.hpp"
+#include "com/com_vector.hpp"
 
+#include <algorithm>
 #include <iostream>
 #include <ranges>
 
-geom_ptr CClipMap::geometry;
-std::unique_ptr<cm_geometry> CClipMap::wip_geom;
-fvec3 CClipMap::wip_color;
+LevelGeometry_t CClipMap::m_pLevelGeometry;
+std::unique_ptr<cm_geometry> CClipMap::m_pWipGeometry;
+fvec3 CClipMap::m_vecWipGeometryColor;
+std::mutex CClipMap::mtx;
 
 
 cm_winding::cm_winding(const std::vector<fvec3>& p, const fvec3& normal, [[maybe_unused]]const fvec3& col) : points(p), normals(normal)
@@ -20,13 +23,14 @@ cm_winding::cm_winding(const std::vector<fvec3>& p, const fvec3& normal, [[maybe
 	is_elevator = std::fabs(normal[0]) == 1.f || std::fabs(normal[1]) == 1.f;
 	normals = normal;
 
-	//if (rgp && rgp->world) {
-	//	fvec3 new_color = SetSurfaceBrightness(col, normal, rgp->world->sunParse.angles);
-	//	VectorCopy(new_color, color);
-	//}
-	color[1] = 1.f;
-	color[2] = 0.f;
-	color[3] = 1.f;
+	if (rgp && rgp->world) {
+		fvec3 new_color = SetSurfaceBrightness(col, normal, rgp->world->sunParse.angles);
+		VectorCopy(new_color, color);
+	} else {
+		color[1] = 1.f;
+		color[2] = 0.f;
+		color[3] = 1.f;
+	}
 	color[3] = 0.7f;
 
 	mins = get_mins();
@@ -36,30 +40,32 @@ cm_winding::cm_winding(const std::vector<fvec3>& p, const fvec3& normal, [[maybe
 
 void cm_brush::render([[maybe_unused]] const cm_renderinfo& info)
 {
-	/*if (info.only_colliding && brush->has_collision() == false)
+	if (info.only_colliding && CM_BrushHasCollision(brush) == false)
 		return;
 
-	if (origin.dist(cgs->predictedPlayerState.origin) > info.draw_dist)
+	auto& myOrg = *(fvec3*)0x3BF6964;
+	
+	if (origin.dist(myOrg) > info.draw_dist)
 		return;
 
 	if (!CM_BrushInView(brush, info.frustum_planes, info.num_planes))
 		return;
 
-	for (auto& w : windings)
-	{
 
-
+	for (const auto& w : windings) {
 		if (info.only_bounces && w.is_bounce == false)
 			continue;
 
 		if (info.only_elevators && w.is_elevator == false)
 			continue;
 
-		vec4_t c = { 0,1,1,0.3f };
+		vec4_t c = { 0,1,0,0.3f };
 
-		c[0] = w.color[0];
-		c[1] = w.color[1];
-		c[2] = w.color[2];
+		if (info.as_polygons) {
+			c[0] = w.color[0];
+			c[1] = w.color[1];
+			c[2] = w.color[2];
+		}
 		c[3] = info.alpha;
 
 		if (info.only_bounces) {
@@ -75,28 +81,26 @@ void cm_brush::render([[maybe_unused]] const cm_renderinfo& info)
 			c[2] = 0.f;
 		}
 
-		if (__brush::rb_requesting_to_stop_rendering)
-			return;
-
-		auto func = info.as_polygons ? RB_DrawCollisionPoly : RB_DrawCollisionEdges;
-		func(w.points.size(), (float(*)[3])w.points.data(), c, info.depth_test);
+		const auto func = info.as_polygons ? CM_DrawCollisionPoly : CM_DrawCollisionEdges;
+		func(w.points, c, info.depth_test);
 
 	}
 
-	if (info.only_elevators == 2 && brush->has_collision()) {
+	if (info.only_elevators == 2 && CM_BrushHasCollision(brush)) {
 
 		std::vector<fvec3> pts(2);
 
-		auto func = info.as_polygons ? RB_DrawCollisionPoly : RB_DrawCollisionEdges;
+		const auto func = info.as_polygons ? CM_DrawCollisionPoly : CM_DrawCollisionEdges;
 
 
-		for (auto& w : corners) {
-			func(w->points.size(), (float(*)[3])w->points.data(), vec4_t{1,0,0,info.alpha}, info.depth_test);
+		for (const auto& w : corners) {
+			func(w->points, vec4_t{ 1,0,0,info.alpha }, info.depth_test);
 		}
 
-	}*/
+	}
 
 };
+
 void cm_brush::create_corners()
 {
 	//get all ele surfaces
@@ -154,8 +158,10 @@ void cm_terrain::render(const cm_renderinfo& info)
 	//	return;
 	//}
 
-	/*std::vector<fvec3> points(3);
+	std::vector<fvec3> points(3);
 	fvec3 center;
+
+	auto& myOrg = *(fvec3*)0x3BF6964;
 
 	for (auto& tri : tris)
 	{
@@ -167,14 +173,14 @@ void cm_terrain::render(const cm_renderinfo& info)
 		if ((tri.plane[2] < 0.3f || tri.plane[2] > 0.7f) && info.only_bounces)
 			continue;
 
-		if (tri.a.dist(cgs->predictedPlayerState.origin) > info.draw_dist)
+		if (tri.a.dist(myOrg) > info.draw_dist)
 			continue;
 
 		if (!CM_TriangleInView(&tri, info.frustum_planes, info.num_planes))
 			continue;
 
-		vec4_t c = 
-		{ 
+		vec4_t c =
+		{
 			tri.color[0],
 			tri.color[1],
 			tri.color[2],
@@ -203,14 +209,12 @@ void cm_terrain::render(const cm_renderinfo& info)
 		center.y = { (points[0].y + points[1].y + points[2].y) / 3 };
 		center.z = { (points[0].z + points[1].z + points[2].z) / 3 };
 
-		if (center.dist(cgs->predictedPlayerState.origin) > info.draw_dist)
+		if (center.dist(myOrg) > info.draw_dist)
 			continue;
 
-		if (info.as_polygons)
-			RB_DrawPolyInteriors(3, points, c, true, info.depth_test);
-		else
-			RB_DrawCollisionEdges(3, (float(*)[3])points.data(), c, info.depth_test);
-	}*/
+		const auto func = info.as_polygons ? CM_DrawCollisionPoly : CM_DrawCollisionEdges;
+		func(points, c, info.depth_test);
+	}
 }
 int cm_terrain::map_export(std::stringstream& o, int index)
 {
@@ -285,10 +289,10 @@ bool CM_IsMatchingFilter(const std::unordered_set<std::string>& filters, const c
 void CM_LoadMap()
 {
 
-	CClipMap::clear();
+	CClipMap::ClearThreadSafe();
 
 	for(const auto i : std::views::iota(0u, cm->numBrushes))
-		CM_GetBrushWindings(&cm->brushes[i]);
+		CM_LoadBrushWindingsToClipMap(&cm->brushes[i]);
 
 	CM_DiscoverTerrain({ "all" });
 
@@ -300,4 +304,86 @@ void CM_LoadMap()
 	}
 
 
+}
+std::unordered_set<std::string> CM_TokenizeFilters(const std::string& filters)
+{
+	std::unordered_set<std::string> tokens;
+	std::stringstream stream(filters);
+	std::string token;
+
+	while (stream >> token) {
+		tokens.insert(token);
+	}
+
+	return tokens;
+}
+
+
+void CClipMap::Insert(std::unique_ptr<cm_geometry>& geom) {
+
+
+
+	if (geom)
+		m_pLevelGeometry.emplace_back(std::move(geom));
+
+	m_pWipGeometry = nullptr;
+}
+void CClipMap::Insert(std::unique_ptr<cm_geometry>&& geom) {
+
+	if (geom)
+		m_pLevelGeometry.emplace_back(std::move(geom));
+
+	m_pWipGeometry = nullptr;
+}
+void CClipMap::ClearAllOfType(const cm_geomtype t)
+{
+	if (t == cm_geomtype::brush)
+		CClipMap::RestoreBrushCollisions();
+
+	auto itr = std::remove_if(m_pLevelGeometry.begin(), m_pLevelGeometry.end(), [&t](std::unique_ptr<cm_geometry>& g)
+		{
+			return g->type() == t;
+		});
+
+	m_pLevelGeometry.erase(itr, m_pLevelGeometry.end());
+
+}
+auto CClipMap::GetAllOfType(const cm_geomtype t)
+{
+	std::vector<LevelGeometry_t::iterator> r;
+
+	for (auto b = m_pLevelGeometry.begin(); b != m_pLevelGeometry.end(); ++b)
+	{
+		if (b->get()->type() == t)
+			r.push_back(b);
+	}
+
+	return r;
+}
+
+void CClipMap::RemoveBrushCollisionsBasedOnVolume(const float volume)
+{
+	for (const auto& geom : m_pLevelGeometry) {
+
+		if (geom->type() != cm_geomtype::brush)
+			continue;
+
+		const auto pbrush = dynamic_cast<cm_brush*>(&*geom);
+		const float geomVolume = ((fvec3&)pbrush->brush->maxs - (fvec3&)pbrush->brush->mins).mag();
+
+		if (geomVolume >= volume)
+			pbrush->brush->contents &= ~0x10000;
+	}
+}
+
+void CClipMap::RestoreBrushCollisions()
+{
+	for (const auto& geom : m_pLevelGeometry) {
+
+		if (geom->type() != cm_geomtype::brush)
+			continue;
+
+		const auto pbrush = dynamic_cast<cm_brush*>(&*geom);
+		pbrush->brush->contents = pbrush->originalContents;
+	}
 }

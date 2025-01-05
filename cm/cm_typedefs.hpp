@@ -5,8 +5,10 @@
 #include <sstream>
 #include <fstream>
 #include <vector>
-#include <utils/typedefs.hpp>
+
+#include "utils/typedefs.hpp"
 #include "global_macros.hpp"
+#include <mutex>
 
 struct sc_winding_t
 {
@@ -40,6 +42,7 @@ enum class cm_geomtype
 struct cplane_s;
 struct cbrush_t;
 struct cLeaf_t;
+struct adjacencyWinding_t;
 
 struct cm_triangle
 {
@@ -154,8 +157,6 @@ struct cm_renderinfo
 	bool only_bounces = {};
 	int only_elevators = {};
 	float alpha = 0.7f;
-
-
 };
 
 class brushModelEntity;
@@ -169,6 +170,7 @@ struct cm_geometry
 	virtual void render2d() = 0;
 	fvec3 origin;
 	bool has_collisions = {};
+	int originalContents = {};
 	int num_verts = {};
 	brushModelEntity* brushmodel = 0;
 
@@ -244,60 +246,56 @@ struct cm_model : public cm_geometry
 
 void CM_LoadMap();
 bool CM_IsMatchingFilter(const std::unordered_set<std::string>& filters, const char* material);
+std::unordered_set<std::string> CM_TokenizeFilters(const std::string& filters);
 
+using GeometryPtr_t = std::unique_ptr<cm_geometry>;
+using LevelGeometry_t = std::vector<GeometryPtr_t>;
 
-using geom_ptr = std::vector<std::unique_ptr<cm_geometry>>;
 class CClipMap
 {
+	NONCOPYABLE(CClipMap);
+
 public:
 
-	static void insert(std::unique_ptr<cm_geometry>& geom) {
+	friend void CM_LoadBrushWindingsToClipMap(const cbrush_t* brush);
+	friend std::unique_ptr<cm_geometry> CM_GetBrushPoints(const cbrush_t* brush, const fvec3& poly_col);
+	friend void __cdecl adjacency_winding(adjacencyWinding_t* w, float* points, vec3_t normal, unsigned int i0, unsigned int i1, unsigned int i2);
 
-		if (geom)
-			geometry.emplace_back(std::move(geom));
+	static void Insert(GeometryPtr_t& geom);
+	static void Insert(GeometryPtr_t&& geom);
+	static void ClearAllOfType(const cm_geomtype t);
+	static auto GetAllOfType(const cm_geomtype t);
 
-		wip_geom = nullptr;
+	static void ClearAllOfTypeThreadSafe(const cm_geomtype t) { std::unique_lock<std::mutex> lock(mtx); ClearAllOfType(t); }
+
+	//NOT thread safe
+	static void RemoveBrushCollisionsBasedOnVolume(const float volume);
+
+	//NOT thread safe
+	static void RestoreBrushCollisions();
+
+	static auto begin() { return m_pLevelGeometry.begin(); }
+	static auto end() { return m_pLevelGeometry.end(); }
+	static size_t Size() { return m_pLevelGeometry.size(); }
+	static void Clear() { CClipMap::RestoreBrushCollisions(); m_pLevelGeometry.clear(); m_pWipGeometry.reset(); }
+	static void ClearThreadSafe() { std::unique_lock<std::mutex> lock(mtx); Clear(); }
+
+	inline static auto& GetLock() { return mtx; }
+
+	template<typename Func>
+	static void ForEach(Func func) {
+
+		for (auto& geo : m_pLevelGeometry)
+			func(geo);
+
 	}
-	static void insert(std::unique_ptr<cm_geometry>&& geom) {
-
-		if (geom)
-			geometry.emplace_back(std::move(geom));
-
-		wip_geom = nullptr;
-	}
-	static void clear_type(const cm_geomtype t)
-	{
-		auto itr = std::remove_if(geometry.begin(), geometry.end(), [&t](std::unique_ptr<cm_geometry>& g)
-			{
-				return g->type() == t;
-			});
-
-		geometry.erase(itr, geometry.end());
-
-	}
-	static std::vector<geom_ptr::iterator> get_all_of_type(const cm_geomtype t)
-	{
-		std::vector<geom_ptr::iterator> r;
-
-		for (auto b = geometry.begin(); b != geometry.end(); ++b)
-		{
-			if (b->get()->type() == t)
-				r.push_back(b);
-		}
-
-		return r;
-	}
-	static auto begin() { return geometry.begin(); }
-	static auto end() { return geometry.end(); }
-	static size_t size() { return geometry.size(); }
-	static void clear() { geometry.clear(); wip_geom.reset(); }
-	static auto& get() { return geometry; }
-
-	static std::unique_ptr<cm_geometry> wip_geom;
-	static fvec3 wip_color;
 
 private:
-	static geom_ptr geometry;
+	static std::unique_ptr<cm_geometry> m_pWipGeometry;
+	static fvec3 m_vecWipGeometryColor;
+	static LevelGeometry_t m_pLevelGeometry;
+
+	static std::mutex mtx;
 };
 
 void CM_LoadMap();

@@ -23,10 +23,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, [[maybe_unused
                     return 0;
                 }
 
-                FILE* _con = 0;
+ /*             FILE* _con = 0;
 
                 AllocConsole();
-                freopen_s(&_con, "CONOUT$", "w", stdout);
+                freopen_s(&_con, "CONOUT$", "w", stdout);*/
 
                 puts("hello, world!");
 
@@ -37,8 +37,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, [[maybe_unused
                     std::this_thread::sleep_for(1s);
                 }
 
-                if(_con)
-                    fclose(_con);
+                //if(_con)
+                //    fclose(_con);
 
                 return 1;
 

@@ -1,5 +1,118 @@
 #include "com_vector.hpp"
-#include <utils/typedefs.hpp>
+#include "utils/typedefs.hpp"
+#include "cg/cg_local.hpp"
+#include "cg/cg_offsets.hpp"
+
+int BoxOnPlaneSide(const fvec3& emins, const fvec3& emaxs, struct cplane_s* p)
+{
+	float dist1, dist2;
+
+	switch (p->signbits)
+	{
+	case 0:
+		dist1 = p->normal[0] * emaxs[0] + p->normal[1] * emaxs[1] + p->normal[2] * emaxs[2];
+		dist2 = p->normal[0] * emins[0] + p->normal[1] * emins[1] + p->normal[2] * emins[2];
+		break;
+	case 1:
+		dist1 = p->normal[0] * emins[0] + p->normal[1] * emaxs[1] + p->normal[2] * emaxs[2];
+		dist2 = p->normal[0] * emaxs[0] + p->normal[1] * emins[1] + p->normal[2] * emins[2];
+		break;
+	case 2:
+		dist1 = p->normal[0] * emaxs[0] + p->normal[1] * emins[1] + p->normal[2] * emaxs[2];
+		dist2 = p->normal[0] * emins[0] + p->normal[1] * emaxs[1] + p->normal[2] * emins[2];
+		break;
+	case 3:
+		dist1 = p->normal[0] * emins[0] + p->normal[1] * emins[1] + p->normal[2] * emaxs[2];
+		dist2 = p->normal[0] * emaxs[0] + p->normal[1] * emaxs[1] + p->normal[2] * emins[2];
+		break;
+	case 4:
+		dist1 = p->normal[0] * emaxs[0] + p->normal[1] * emaxs[1] + p->normal[2] * emins[2];
+		dist2 = p->normal[0] * emins[0] + p->normal[1] * emins[1] + p->normal[2] * emaxs[2];
+		break;
+	case 5:
+		dist1 = p->normal[0] * emins[0] + p->normal[1] * emaxs[1] + p->normal[2] * emins[2];
+		dist2 = p->normal[0] * emaxs[0] + p->normal[1] * emins[1] + p->normal[2] * emaxs[2];
+		break;
+	case 6:
+		dist1 = p->normal[0] * emaxs[0] + p->normal[1] * emins[1] + p->normal[2] * emins[2];
+		dist2 = p->normal[0] * emins[0] + p->normal[1] * emaxs[1] + p->normal[2] * emaxs[2];
+		break;
+	case 7:
+		dist1 = p->normal[0] * emins[0] + p->normal[1] * emins[1] + p->normal[2] * emins[2];
+		dist2 = p->normal[0] * emaxs[0] + p->normal[1] * emaxs[1] + p->normal[2] * emaxs[2];
+		break;
+	default:
+		dist1 = dist2 = 0;      // shut up compiler
+		break;
+	}
+
+	return (2 * (dist2 < p->dist)) | (dist1 > p->dist);
+}
+
+void BuildFrustumPlanes(cplane_s* frustumPlanes)
+{
+
+	for (int i = 0; i < 5; i++) {
+
+		cplane_s* plane = &frustumPlanes[i];
+		auto dpvs = &dpvsGlob->views[0]->frustumPlanes[i];
+		VectorCopy(dpvs->coeffs, plane->normal);
+		plane->dist = dpvs->coeffs[3] * -1;
+
+		char signbit = 0;
+
+		if (plane->normal[0] != 1.f) {
+			if (plane->normal[1] == 1.f)
+				signbit = 1;
+			else {
+				signbit = plane->normal[2] == 1.f ? 2 : 3;
+			}
+		}
+
+		plane->type = signbit;
+
+		SetPlaneSignbits(plane);
+
+	}
+}
+void CreateFrustumPlanes(cplane_s* frustum_planes)
+{
+	BuildFrustumPlanes(frustum_planes);
+
+	frustum_planes[5].normal[0] = -frustum_planes[4].normal[0];
+	frustum_planes[5].normal[1] = -frustum_planes[4].normal[1];
+	frustum_planes[5].normal[2] = -frustum_planes[4].normal[2];
+
+	frustum_planes[5].dist = -frustum_planes[4].dist - 2000;
+	auto plane = &frustum_planes[5];
+
+	char signbit = 0;
+
+	if (plane->normal[0] != 1.f) {
+		if (plane->normal[1] == 1.f)
+			signbit = 1;
+		else {
+			signbit = plane->normal[2] == 1.f ? 2 : 3;
+		}
+	}
+
+	plane->type = signbit;
+
+	SetPlaneSignbits(plane);
+}
+void SetPlaneSignbits(cplane_s* out)
+{
+	char bits, j;
+
+	// for fast box on planeside test
+	bits = 0;
+	for (j = 0; j < 3; j++) {
+		if (out->normal[j] < 0) {
+			bits |= 1 << j;
+		}
+	}
+	out->signbits = bits;
+}
 
 void CrossProduct(const vec3_t v1, const vec3_t v2, vec3_t cross) {
 	cross[0] = v1[1] * v2[2] - v1[2] * v2[1];
@@ -253,4 +366,18 @@ float AngleNormalize180(float angle) {
 		angle -= 360.0;
 	}
 	return angle;
+}
+
+fvec3 SetSurfaceBrightness(const fvec3& color, const fvec3& normal, const fvec3& lightDirection) {
+
+	fvec3 normalizedLight = (lightDirection).normalize();
+
+	float dotProduct = normalizedLight.dot(normal);
+
+	float brightnessAdjustment = 1.f - std::max(0.0f, dotProduct);
+	float maxComponent = std::max({ color.x, color.y, color.z });
+	brightnessAdjustment *= maxComponent;
+
+	return color * brightnessAdjustment;
+
 }

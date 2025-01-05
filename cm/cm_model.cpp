@@ -31,7 +31,7 @@ void CM_AddModel(const GfxStaticModelDrawInst* model)
 	xmodel.angles = AxisToAngles(model->placement.axis);
 	xmodel.name = model->model->name;
 
-	CClipMap::insert(std::make_unique<cm_model>(xmodel));
+	CClipMap::Insert(std::make_unique<cm_model>(xmodel));
 }
 
 
